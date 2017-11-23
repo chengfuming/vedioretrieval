@@ -1,0 +1,7 @@
+ifeq ($(ARCH),i686)
+    CC=gcc -m32
+    CFLAGS=-std=c++11 -Wall -Wno-literal-suffix -shared -fPIC -g -O3
+else
+    CC=gcc
+    CFLAGS=-std=c++11 -Wall -Wno-literal-suffix -shared -fPIC -g -O3
+endif

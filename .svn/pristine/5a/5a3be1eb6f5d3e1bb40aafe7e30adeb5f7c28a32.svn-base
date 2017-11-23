@@ -1,0 +1,158 @@
+#ifndef VENUS_RETRIEVAL_WORK_INTERFACE_H
+#define VENUS_RETRIEVAL_WORK_INTERFACE_H
+
+#include "work_interface.h"
+#include "ini_file.h"
+#include "woo/log.h"
+
+#include <map>
+#include <set>
+#include <vector>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <algorithm>
+#include <utility>
+#include <functional>
+
+#include "json.h"
+#include <time.h>
+
+#ifdef __GNUC__
+#include <ext/hash_map>
+#else
+#include <hash_map>
+#endif // __GNUC__
+
+#include <unordered_map>
+#include <unordered_set>
+
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+using namespace rapidjson;
+
+class VenusRetrievalWorkInterface;
+
+typedef struct Info {
+    string mid;
+    string video_feat;
+    string reason;
+    double score;
+    string match_feat;
+} Info;
+
+typedef unordered_map<string, Info> MidInfo;
+
+typedef struct ThreadData {
+    string reason;
+    set<string> mids_set;
+    int need_num;
+    string source_mid;
+    string uid;
+    VenusRetrievalWorkInterface* instance;
+} ThreadData;
+
+typedef pair<string, double> StringDoublePair;
+
+template <typename T>
+struct pair_add {
+    T operator()(T i, const pair<string, T> &x) {
+        return i + x.second;
+    }
+};
+
+bool compare_by_value(const StringDoublePair &lhs, const StringDoublePair &rhs) {
+    return lhs.second > rhs.second;
+}
+
+bool compare_by_value_asc(const StringDoublePair &lhs, const StringDoublePair &rhs) {
+    return lhs.second < rhs.second;
+}
+
+class VenusRetrievalWorkInterface : public WorkInterface {
+public:
+    VenusRetrievalWorkInterface(DbCompany* &p_db_company, int interface_id):
+    WorkInterface(p_db_company, interface_id) {}
+    ~VenusRetrievalWorkInterface() {}
+    int work_core(json_object* req_json, char* &p_out_string, int &n_out_len, int64_t req_id);
+
+private:
+    // common
+    int return_fail(int ret_code, char* ret_msg, const char* req_id, char* &p_out_string, int &n_out_len);
+    string uint64_to_string(uint64_t value);
+    string get_rand_num_str(int mod_num);
+    // int myrandom(int i);
+    int get_user_feat(const string &uid, string &user_feat);
+    string compute_match_feat(const string &cand_id, double score, const string &score_type);
+    int get_video_feat(MidInfo &mid_info_map, int need_feature);
+    int return_json(const char* req_cmd, int ret_code, const char* ret_msg, const char* req_id, const string &user_feat, const MidInfo &mid_info_map, char* &p_out_string, int &n_out_len);
+    int return_json(const char* req_cmd, int ret_code, const char* ret_msg, const char* req_id, const string &user_feat, MidInfo &mid_info_map, const vector<string> &cand_id_vec, char* &p_out_string, int &n_out_len);
+    int get_need_num_mid_by_score(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+    int get_need_num_mid_by_playduration(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+    int get_need_num_mid_by_hotscore(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+    int get_need_num_mid_by_realtime_playduration(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+	int get_need_num_mid_by_realtime_playduration_v2(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+	int get_need_num_mid_by_offline_playduration(MidInfo &mid_info_map, int need_num, const vector<string> &c0and_id_vec);
+    int get_mids_sim_hash(const set<string> &mids_set, unordered_map<string, uint64_t> &mid_sim_hash_map);
+    int compute_hamming_distance(uint64_t num1, uint64_t num2);
+    int del_sim_mids(const string &source_mid, MidInfo &mid_info_map);
+
+    // thread
+    static void* pthread_get_mids(void* args);
+    int multithread_method(vector<ThreadData> &thread_data_vec, const string &source_mid, MidInfo &mid_info_map);
+
+    // keyword
+    int split_keywords_add_index(const string &keywords_str, vector<string> &keywords_vec);
+    int mget_mids_by_keywords(const set<string> &keywords_set, MapStringString &keyword_mids_map);
+
+    // topic
+    int split_topics_add_index(const string &topics_str, vector<string> &topics_vec);
+    int mget_mids_by_topics(const string &db_name, const set<string> &topics_set, MapStringString &topic_mids_map);
+    int mget_mids_by_one_topics(const set<string> &topics_set, MapStringString &topic_mids_map);
+    int mget_mids_by_sharp_topics(const set<string> &topics_set, MapStringString &topic_mids_map);
+
+    // interest
+    double compute_keyword_and_score(time_t cur_time, const string &keyword_compound, int decay_time, string &keyword, double* score);
+    int get_top_keywords(const string &compound_value, int need_all_mid_num, int need_keyword_num, int decay_time, set<string> &keywords_set, unordered_map<string, int> &keyword_need_mid_num_map);
+    int get_spread_topics(const string &compound_value, int need_all_mid_num, int need_topic_num, set<string> &topics_set, unordered_map<string, int> &topic_need_mid_num_map);
+    int get_people_topics(const string &compound_value, set<string> &topics_set);
+
+    // gif
+    int mget_mid_gifnum(const set<string> &mids_set, unordered_map<string, double> &mid_gifnum_map);
+    int return_gif_json(const char* req_cmd, int ret_code, const char* ret_msg, const char* req_id, const string &user_feat, MidInfo &mid_info_map, const vector<string> &cand_id_vec, char* &p_out_string, int &n_out_len);
+    int get_need_num_mid_by_gif_hotscore(MidInfo &mid_info_map, int need_num, const vector<string> &cand_id_vec);
+    int mget_mids_by_gif_topics(const set<string> &topics_set, MapStringString &topic_mids_map);
+    int gif_hot_cand(int need_num, set<string> &mids_set);
+
+    // cand method
+    int hot_cand(int need_num, set<string> &mids_set);
+    int keyword_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int ucf_cand(const string &uid, int need_num, set<string> &mids_set);
+    int topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int short_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+	int bigdata_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int long_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int spread_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int one_topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int sharp_topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int people_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int follow_sim_cand(const string &uid, int need_num, set<string> &mids_set);
+    int gif_topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int nice_topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int nice_topic_cand_new(const string &source_mid, int need_num, set<string> &mids_set);
+    int old_topic_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int nice_short_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int nice_long_interest_cand(const string &uid, int need_num, set<string> &mids_set);
+    int gyx_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    int man_tag_cand(const string &source_mid, int need_num, set<string> &mids_set);
+
+    // video semantic analysis
+    int video_analysis_cand(const string &source_mid, int need_num, set<string> &mids_set);
+    // topic shift
+    int nice_topic_shift_cand(const string &source_mid, int need_num, set<string> &mids_set);
+
+    int re_query_;
+    string uid_;
+};
+
+#endif /* VENUS_RETRIEVAL_WORK_INTERFACE_H */
